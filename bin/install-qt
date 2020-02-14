@@ -1,0 +1,129 @@
+#!/bin/bash
+# for available packages see
+# https://github.com/qtproject/qtsdk/tree/master/packaging-tools/configurations/pkg_templates
+
+function usage() {
+    echo "Usage:"
+    echo -e "\t install-qt --package-list <comma-separated-list> --user <username> --password <password> [--interactive] [--verbose]"
+    exit -1
+}
+
+
+QT_INSTALL_SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+function download_installer {
+    # ONLINE INSTALLER
+    # Linux x64: "http://download.qt.io/official_releases/online_installers/qt-unified-linux-x64-online.run"
+    # Mac x64:   "http://download.qt.io/official_releases/online_installers/qt-unified-mac-x64-online.dmg"
+
+    unameOut="$(uname -s)"
+    case "${unameOut}" in
+        Linux*)
+            installer_url="http://download.qt.io/official_releases/online_installers/qt-unified-linux-x64-online.run"
+            qt_unified_installer="qt-unified-linux-x64-online.run"
+            ;;
+        Darwin*)
+            installer_url="http://download.qt.io/official_releases/online_installers/qt-unified-mac-x64-online.dmg"
+            qt_unified_installer="qt-unified-mac-x64-online.dmg"
+            ;;
+        *)
+    esac
+
+    if ! [ -x "$(command -v curl)" ]; then
+        wget --quiet ${installer_url}
+    fi
+        curl -L ${installer_url} --output ${qt_unified_installer}
+    fi
+
+    case "${unameOut}" in
+             Darwin*)
+                mounted_dmg=$(hdiutil attach ${qt_unified_installer} | tail -n1 | tr -d ' ' | tr '\t' ';' | cut -d";" -f3)
+                echo "${mounted_dmg}"
+                cp -r ${mounted_dmg}/*.app .
+                hdiutil unmount "${mounted_dmg}"
+                qt_unified_installer=$(find . -iname "qt-unified*-online")
+                ;;
+        *)
+    esac
+
+    chmod +x ${qt_unified_installer}
+}
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+key="$1"
+
+case $key in
+    -i|--install-dir)
+    export QT_INSTALL_DIR="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -u|--user)
+    export QT_USER="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -p|--password)
+    export QT_PASSWORD="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -l|--package-list)
+    export QT_PACKAGE_LIST="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -i|--interactive)
+    QT_INSTALL_INTERACTIVE=1
+    shift # past argument
+    ;;
+    -v|--verbose)
+    QT_INSTALL_VERBOSE=1
+    shift # past argument
+    ;;
+    -h|--help)
+    usage
+    ;;
+    *)    # unknown option
+    POSITIONAL+=("$1") # save it in an array for later
+    shift # past argument
+    usage
+    ;;
+esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+echo "#########################################"
+echo "QT SILENT INSTALLER"
+echo "#########################################"
+echo "->   Packages          = ${QT_PACKAGE_LIST}"
+echo "->   Install Directory = ${QT_INSTALL_DIR}"
+echo "->   User              = ${QT_USER}"
+echo "->   Password          = ${QT_PASSWORD}"
+
+# replace install directory
+envsubst < "${QT_INSTALL_SCRIPT_DIR}/../templates/install_qt_silent.qs.in" > "install_qt_silent.qs"
+
+# get the unified installer
+# this will set the variable 'qt_unified_installer'
+download_installer
+
+installer_args=()
+if [ -z "${QT_INSTALL_INTERACTIVE}" ]; then
+  installer_args+=(
+    --platform minimal
+  )
+else
+  echo "Enabling interactive-mode..."
+fi
+
+if [ -z "${QT_INSTALL_VERBOSE}" ]; then
+  installer_args+=(
+    --verbose
+  )
+fi
+
+# run installer
+./${qt_unified_installer} ${installer_args[@]} --script install_qt_silent.qs
